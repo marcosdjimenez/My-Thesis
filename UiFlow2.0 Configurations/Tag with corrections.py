@@ -16,51 +16,24 @@ class FilteredDistance:
     Implementa un validatore di spike e uno smoothing esponenziale (EMA).
     """
     def __init__(self, alpha, validation_threshold):
-        """
-        Inizializza il filtro.
-        Args:
-            alpha (float): Fattore di smoothing per l'EMA (tra 0 e 1).
-                           Valori bassi = più smoothing. Valori alti = più reattività.
-            validation_threshold (float): Variazione massima consentita (in metri)
-                                          tra due letture consecutive per essere valide.
-        """
         self.alpha = alpha
         self.threshold = validation_threshold
-       
-        self.smoothed_value = None # L'ultimo valore filtrato
-        self.last_valid_raw = None # L'ultima misura grezza considerata valida
+        self.smoothed_value = None
+        self.last_valid_raw = None
+
     def update(self, raw_distance):
-        """
-        Aggiorna il filtro con una nuova misura di distanza grezza.
-        Args:
-            raw_distance (float): La nuova lettura di distanza dal sensore.
-        Returns:
-            float: La distanza filtrata e validata.
-        """
-        # Se il valore grezzo non è valido (es. None), non fare nulla e restituisci l'ultimo valore buono
         if raw_distance is None:
             return self.smoothed_value
-        # Caso di inizializzazione: la prima lettura valida viene accettata direttamente
         if self.smoothed_value is None:
             self.smoothed_value = raw_distance
             self.last_valid_raw = raw_distance
             return self.smoothed_value
-        # 1. VALIDAZIONE (OUTLIER REJECTION)
-        # Controlla se la nuova lettura è troppo diversa dall'ultima valida
         if abs(raw_distance - self.last_valid_raw) > self.threshold:
-            # La misura è uno spike/outlier, la scartiamo.
-            # Restituiamo il valore smussato precedente senza aggiornarlo.
             return self.smoothed_value
-       
-        # Se la misura è valida, la usiamo per aggiornare il filtro
         self.last_valid_raw = raw_distance
-        # 2. SMOOTHING (EMA FILTER)
-        # Applica il filtro esponenziale a media mobile
         self.smoothed_value = (self.alpha * raw_distance) + ((1 - self.alpha) * self.smoothed_value)
-       
         return self.smoothed_value
 # ====== Variabili globali ======
-# ... (le altre variabili globali rimangono le stesse) ...
 dist0 = None
 dist1 = None
 dist2 = None
@@ -82,15 +55,13 @@ position_y = None
 # Configurazione Wi-Fi
 WIFI_SSID = 'Modem 4G Wi-Fi_CA5A'
 WIFI_PASSWORD = '02738204'
-SERVER_URL = 'http://192.168.1.163:5050/log_filtered'  # Modificato per salvare in un file diverso (es. log_filtered sul server)
+SERVER_URL = 'http://192.168.1.163:5050/log_filtered'  # Usa il tuo IP corretto (dal log sembra 192.168.1.129?)
 # ====== OGGETTI FILTRO ======
-# Creiamo un'istanza del filtro per ogni ancora
-# Parametri scelti: alpha=0.4 (compromesso tra reattività e smoothing)
-# threshold=0.5 metri (scarta salti di oltre 50 cm tra una lettura e l'altra)
-dist_filter0 = FilteredDistance(alpha=0.4, validation_threshold=0.5)
-dist_filter1 = FilteredDistance(alpha=0.4, validation_threshold=0.5)
-dist_filter2 = FilteredDistance(alpha=0.4, validation_threshold=0.5)
-dist_filter3 = FilteredDistance(alpha=0.4, validation_threshold=0.5)
+# Aumentato threshold a 1.5 per evitare blocco iniziale (testa e adatta)
+dist_filter0 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
+dist_filter1 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
+dist_filter2 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
+dist_filter3 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
 # ====== Funzioni principali ======
 def setup():
     global dist0, dist1, dist2, dist3, label4, battery, label0, label1, label2, label3
@@ -124,7 +95,6 @@ def setup():
         time.sleep(1)
     print('Wi-Fi connesso:', wlan.ifconfig())
 def calculate_position_4(dists, anchors):
-    # ... (questa funzione rimane identica a prima) ...
     if any(d is None for d in dists):
         return None, None
     x4, y4 = anchors[3]
@@ -163,45 +133,67 @@ def loop():
     distance2_raw = uwb_0.get_distance(2)
     distance3_raw = uwb_0.get_distance(3)
    
-    # 2. APPLICA IL FILTRO A CIASCUNA DISTANZA
+    # Debug: Stampa raw per verificare se aggiorna
+    print(f'Raw: d0={distance0_raw}, d1={distance1_raw}, d2={distance2_raw}, d3={distance3_raw}')
+   
+    # 2. APPLICA IL FILTRO
     distance0_filtered = dist_filter0.update(distance0_raw)
     distance1_filtered = dist_filter1.update(distance1_raw)
     distance2_filtered = dist_filter2.update(distance2_raw)
     distance3_filtered = dist_filter3.update(distance3_raw)
    
-    # Aggiorna l'interfaccia utente con i valori FILTRATI
-    # Formattiamo per una migliore leggibilità
+    # Debug: Stampa filtered
+    print(f'Filtered: d0={distance0_filtered}, d1={distance1_filtered}, d2={distance2_filtered}, d3={distance3_filtered}')
+   
+    # Aggiorna UI con filtered
     label0.setText("{:.2f}m".format(distance0_filtered) if distance0_filtered is not None else "N/A")
     label1.setText("{:.2f}m".format(distance1_filtered) if distance1_filtered is not None else "N/A")
     label2.setText("{:.2f}m".format(distance2_filtered) if distance2_filtered is not None else "N/A")
     dist3.setText("{:.2f}m".format(distance3_filtered) if distance3_filtered is not None else "N/A")
     label3.setText(str(M5.Power.getBatteryLevel()))
    
-    # 3. CALCOLA LA POSIZIONE USANDO LE DISTANZE FILTRATE
-    position_x, position_y = calculate_position_4(
+    # 3. CALCOLA POSIZIONE RAW E FILTERED
+    position_x_raw, position_y_raw = calculate_position_4(
+        [distance0_raw, distance1_raw, distance2_raw, distance3_raw],
+        [anchor0, anchor1, anchor2, anchor3]
+    )
+    position_x_filtered, position_y_filtered = calculate_position_4(
         [distance0_filtered, distance1_filtered, distance2_filtered, distance3_filtered],
         [anchor0, anchor1, anchor2, anchor3]
     )
    
-    if position_x is not None:
-        print(f'Posizione: ({position_x:.2f}, {position_y:.2f}) m')
-        # Prepara i dati da inviare al server
-        data = {
-            'dist0': distance0_filtered,
-            'dist1': distance1_filtered,
-            'dist2': distance2_filtered,
-            'dist3': distance3_filtered,
-            'x': position_x,
-            'y': position_y
-        }
-        try:
-            response = requests.post(SERVER_URL, json=data)
-            response.close()
-            # print('Dati inviati al PC')
-        except Exception as e:
-            print('Errore invio:', str(e))
+    # Usa filtered per position_x/y globale, ma invia entrambi
+    position_x, position_y = position_x_filtered, position_y_filtered
+   
+    if position_x_filtered is not None:
+        print(f'Posizione filtered: ({position_x_filtered:.2f}, {position_y_filtered:.2f}) m')
     else:
-        print('Impossibile calcolare la posizione (dati insufficienti o geometria degenere)')
+        print('Impossibile calcolare posizione filtered')
+   
+    if position_x_raw is not None:
+        print(f'Posizione raw: ({position_x_raw:.2f}, {position_y_raw:.2f}) m')
+   
+    # Invia dati (anche se filtered None, invia raw per debug)
+    data = {
+        'dist0_raw': distance0_raw,
+        'dist1_raw': distance1_raw,
+        'dist2_raw': distance2_raw,
+        'dist3_raw': distance3_raw,
+        'dist0': distance0_filtered,  # filtered as main dist
+        'dist1': distance1_filtered,
+        'dist2': distance2_filtered,
+        'dist3': distance3_filtered,
+        'x_raw': position_x_raw,
+        'y_raw': position_y_raw,
+        'x': position_x_filtered,
+        'y': position_y_filtered
+    }
+    try:
+        response = requests.post(SERVER_URL, json=data)
+        response.close()
+        print('Dati inviati al PC')
+    except Exception as e:
+        print('Errore invio:', str(e))
        
     time.sleep_ms(200)
 if __name__ == '__main__':
