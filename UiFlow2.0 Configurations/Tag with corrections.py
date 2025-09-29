@@ -54,7 +54,7 @@ position_y = None
 # Configurazione Wi-Fi
 WIFI_SSID = 'Modem 4G Wi-Fi_CA5A'
 WIFI_PASSWORD = '02738204'
-SERVER_URL = 'http://192.168.1.163:5050/log_filtered'  # Usa il tuo IP corretto
+SERVER_URL = 'http://192.168.1.129:5050/log_filtered'  # Usa il tuo IP corretto
 # ====== OGGETTI FILTRO ======
 # Filtri solo per le ancore funzionanti (0,2,3)
 dist_filter0 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
