@@ -45,9 +45,8 @@ label1 = None
 label2 = None
 label3 = None
 uwb_0 = None
-# Coordinate fisse delle ancore (in metri)
+# Coordinate fisse delle ancore (in metri) - ignoriamo anchor1 poiché non funziona
 anchor0 = (0.0, 0.0)
-anchor1 = (1.7, 0.0)
 anchor2 = (0.0, 6.3)
 anchor3 = (1.7, 6.3)
 position_x = None
@@ -55,11 +54,10 @@ position_y = None
 # Configurazione Wi-Fi
 WIFI_SSID = 'Modem 4G Wi-Fi_CA5A'
 WIFI_PASSWORD = '02738204'
-SERVER_URL = 'http://192.168.1.163:5050/log_filtered'  # Usa il tuo IP corretto (dal log sembra 192.168.1.129?)
+SERVER_URL = 'http://192.168.1.163:5050/log_filtered'  # Usa il tuo IP corretto
 # ====== OGGETTI FILTRO ======
-# Aumentato threshold a 1.5 per evitare blocco iniziale (testa e adatta)
+# Filtri solo per le ancore funzionanti (0,2,3)
 dist_filter0 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
-dist_filter1 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
 dist_filter2 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
 dist_filter3 = FilteredDistance(alpha=0.4, validation_threshold=1.5)
 # ====== Funzioni principali ======
@@ -94,14 +92,15 @@ def setup():
         print('Connessione Wi-Fi in corso...')
         time.sleep(1)
     print('Wi-Fi connesso:', wlan.ifconfig())
-def calculate_position_4(dists, anchors):
+def calculate_position_3(dists, anchors):
+    # dists = [d0, d2, d3], anchors = [anchor0, anchor2, anchor3]
     if any(d is None for d in dists):
         return None, None
-    x4, y4 = anchors[3]
-    d4 = dists[3]
+    x4, y4 = anchors[2]  # anchor3 as ref
+    d4 = dists[2]
     rows = []
     bs = []
-    for i in range(3):
+    for i in range(2):  # anchors 0 and 2
         xi, yi = anchors[i]
         di = dists[i]
         Ai = [2 * (x4 - xi), 2 * (y4 - yi)]
@@ -127,42 +126,43 @@ def loop():
     M5.update()
     uwb_0.update()
    
-    # 1. LEGGI LE DISTANZE GREZZE
+    # 1. LEGGI LE DISTANZE GREZZE - ignoriamo distance1_raw poiché anchor1 non funziona
     distance0_raw = uwb_0.get_distance(0)
-    distance1_raw = uwb_0.get_distance(1)
+    distance1_raw = uwb_0.get_distance(1)  # Mantenuto per UI, ma non usato in posizione
     distance2_raw = uwb_0.get_distance(2)
     distance3_raw = uwb_0.get_distance(3)
    
-    # Debug: Stampa raw per verificare se aggiorna
+    # Debug: Stampa raw
     print(f'Raw: d0={distance0_raw}, d1={distance1_raw}, d2={distance2_raw}, d3={distance3_raw}')
    
-    # 2. APPLICA IL FILTRO
+    # 2. APPLICA IL FILTRO solo alle funzionanti
     distance0_filtered = dist_filter0.update(distance0_raw)
-    distance1_filtered = dist_filter1.update(distance1_raw)
+    # distance1_filtered non usato, set to raw or None for data
+    distance1_filtered = distance1_raw  # O None, ma per compatibilità
     distance2_filtered = dist_filter2.update(distance2_raw)
     distance3_filtered = dist_filter3.update(distance3_raw)
    
     # Debug: Stampa filtered
     print(f'Filtered: d0={distance0_filtered}, d1={distance1_filtered}, d2={distance2_filtered}, d3={distance3_filtered}')
    
-    # Aggiorna UI con filtered
+    # Aggiorna UI con filtered (dist1 mostrerà 0.00 o N/A)
     label0.setText("{:.2f}m".format(distance0_filtered) if distance0_filtered is not None else "N/A")
     label1.setText("{:.2f}m".format(distance1_filtered) if distance1_filtered is not None else "N/A")
     label2.setText("{:.2f}m".format(distance2_filtered) if distance2_filtered is not None else "N/A")
     dist3.setText("{:.2f}m".format(distance3_filtered) if distance3_filtered is not None else "N/A")
     label3.setText(str(M5.Power.getBatteryLevel()))
    
-    # 3. CALCOLA POSIZIONE RAW E FILTERED
-    position_x_raw, position_y_raw = calculate_position_4(
-        [distance0_raw, distance1_raw, distance2_raw, distance3_raw],
-        [anchor0, anchor1, anchor2, anchor3]
+    # 3. CALCOLA POSIZIONE RAW E FILTERED ignorando anchor1
+    position_x_raw, position_y_raw = calculate_position_3(
+        [distance0_raw, distance2_raw, distance3_raw],
+        [anchor0, anchor2, anchor3]
     )
-    position_x_filtered, position_y_filtered = calculate_position_4(
-        [distance0_filtered, distance1_filtered, distance2_filtered, distance3_filtered],
-        [anchor0, anchor1, anchor2, anchor3]
+    position_x_filtered, position_y_filtered = calculate_position_3(
+        [distance0_filtered, distance2_filtered, distance3_filtered],
+        [anchor0, anchor2, anchor3]
     )
    
-    # Usa filtered per position_x/y globale, ma invia entrambi
+    # Usa filtered per position_x/y globale
     position_x, position_y = position_x_filtered, position_y_filtered
    
     if position_x_filtered is not None:
@@ -173,13 +173,13 @@ def loop():
     if position_x_raw is not None:
         print(f'Posizione raw: ({position_x_raw:.2f}, {position_y_raw:.2f}) m')
    
-    # Invia dati (anche se filtered None, invia raw per debug)
+    # Invia dati (dist1 incluso per compatibilità, anche se non usato)
     data = {
         'dist0_raw': distance0_raw,
         'dist1_raw': distance1_raw,
         'dist2_raw': distance2_raw,
         'dist3_raw': distance3_raw,
-        'dist0': distance0_filtered,  # filtered as main dist
+        'dist0': distance0_filtered,
         'dist1': distance1_filtered,
         'dist2': distance2_filtered,
         'dist3': distance3_filtered,
